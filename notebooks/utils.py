@@ -59,6 +59,8 @@ def get_india_states():
     india_states = gpd.read_file(india_path)
     return india_states
 
+def get_data_directory():
+    return r"D:\data"
 
 def get_lakes(
     longitude: float, latitude: float, distance: int, area: int = 1000000
@@ -176,7 +178,7 @@ def get_all_lakes(df, distance, area=1000000, drop_duplicated=True):
     all_lakes["centroid_long"] = all_lakes["centroid_ws"].apply(lambda lake: lake.x)
     all_lakes["centroid_lat"] = all_lakes["centroid_ws"].apply(lambda lake: lake.y)
     all_lakes = all_lakes.drop(columns=["geometry_ws", "centroid_ws"])
-    csv_filename = "../data/all_lakes.csv"
+    csv_filename = os.path.join(get_data_directory(), "all_lakes.csv")
     all_lakes[["pixel_size", "pixel_count"]] = all_lakes["osmid"].apply(lambda osmid: pd.Series(calculate_pixel_size_and_pixel_count(osmid)))
     all_lakes["total_pixel_area"] = all_lakes['pixel_count'] * (all_lakes["pixel_size"]**2)
     all_lakes.to_csv(csv_filename, index=False)
@@ -265,14 +267,28 @@ def plot_indian_lakes(universities, lakes):
 def get_config():
     config = SHConfig()
     #Berta
-    config.sh_client_id = "a2bf076a-71dc-49b7-9b5b-5aa18c6469b5"
-    config.sh_client_secret = "nGK7OacxYFmTSC517fCxFxsEPD6FTt31"
+    # config.sh_client_id = "a2bf076a-71dc-49b7-9b5b-5aa18c6469b5"
+    # config.sh_client_secret = "nGK7OacxYFmTSC517fCxFxsEPD6FTt31"
     #DavidMates1
     # config.sh_client_id = "d0d13e6b-b1cf-44f3-b9ac-5961eb728b5b"
     # config.sh_client_secret = "Y5ParWR5M95dbrHWuHjVrOzayXj7eJpS"
     #FernandoMates
     # config.sh_client_id = "7b09811c-f727-451f-b631-c5711bd1ff86"
     # config.sh_client_secret = "IIBnLjK0TAWFqCDZSQax0cVok4VBPNja"
+    # #Roberto
+    # config.sh_client_id = "463443bf-6ffc-4e9f-abb6-01b1e5a71e78"
+    # config.sh_client_secret = "kNWd3ZLmzBHGujXIUUpidXk5K6oFIndk"
+    #Alejandro
+    # config.sh_client_id = "00ebb2cc-3c8c-46fa-8aff-d1cae79a422b"
+    # config.sh_client_secret = "goPBBsJbeyPkiLndWqBUxLIjsbngqgWc"
+    #Taila
+    # config.sh_client_id = "d4f55ce5-a803-4ab5-b680-bc5f19957d15"
+    # config.sh_client_secret = "2JOEOzOxfysriqhfCeIO0846I1e9ULp7"
+    #Taila2
+    config.sh_client_id = "4f4361f4-42eb-495b-b036-8c4a0469c4ba"
+    config.sh_client_secret = "DpJgxZWWJwGLhnTUG9owqFN1tfbhKO6g"
+
+
     return config
 
 def get_image_from_lake(osmid, type_image, date, resolution):
@@ -290,7 +306,8 @@ def get_image_from_lake(osmid, type_image, date, resolution):
     elif type_image.upper() == "SIZE":
         type_image = "size"
 
-    directory = f"../data/{osmid}"
+    data_directory = get_data_directory()
+    directory = f"{data_directory}/{osmid}"
     image_path = f"{directory}/{osmid}_{type_image.lower()}_{date_string}.npy"
     if os.path.exists(image_path):
         save = False
@@ -364,7 +381,6 @@ def get_image_from_lake(osmid, type_image, date, resolution):
         image = raw_image[0]
 
         if save == True:
-            directory = f"../data/{osmid}"
             if not os.path.exists(directory):
                 os.makedirs(directory)
             np.save(
@@ -397,7 +413,6 @@ def get_all_images_from_lake(osmid, type_image, from_date, to_date, resolution):
         selected_day += timedelta(days=5)
 
     return images
-
 
 # def generate_historical_all_type_images_from_lake(
 #     osmid, from_date, to_date, save=False
@@ -516,6 +531,11 @@ def calculate_area(pixel_count, resolution):
 
 def calculate_log(osmid, date_str, total_area, resolution, images):
     exists_true_image = analyze_true_image(images[0])
+    # log = {
+    #     "osmid": osmid,
+    #     "day": date_str,
+    #     "exists_true_image": exists_true_image}
+    # return log
     if len(images) == 1:
         log = {
             "osmid": osmid,
@@ -596,6 +616,7 @@ def calculate_log(osmid, date_str, total_area, resolution, images):
 
 def get_lake_log(lake_row, current_date):
     images = []
+    log = {""}
     osmid = lake_row["osmid"]
     resolution = lake_row["pixel_size"]
     # total_pixel_count = lake_row["pixel_count"]
@@ -605,15 +626,7 @@ def get_lake_log(lake_row, current_date):
     images.append(true_image)
     exists_true_image = analyze_true_image(true_image)
     if  exists_true_image == False:
-        # exists_true_image = False
-        # log = {
-        #     "osmid": osmid,
-        #     "day": current_date.strftime("%Y-%m-%d"),
-        #     "exists_true_image": exists_true_image,
-        #     "total_pixel_area": total_area,
-        #     # "total_pixel_count": total_pixel_count,
-        #     # "is_valid" : False
-        # }
+        
         log = calculate_log(osmid, date_str, total_area, resolution, images)
         return log#, images
 
@@ -623,65 +636,6 @@ def get_lake_log(lake_row, current_date):
     images.append(cloud_image)
     chl_image = get_image_from_lake(osmid, "chl", current_date, resolution)
     images.append(chl_image)
-
-    # water_pixels_mask = (
-    #     (water_image[:, :, 2] > water_image[:, :, 0])
-    #     & (water_image[:, :, 2] > water_image[:, :, 1])
-    #     & (water_image[:, :, 3] != 0)
-    # )
-    # water_pixels_count = np.sum(water_pixels_mask)
-    # water_area = calculate_area(water_pixels_count, resolution)
-
-    # cloud_pixels_mask = (
-    #     (cloud_image[:, :, 0] > cloud_image[:, :, 1])
-    #     & (cloud_image[:, :, 0] > cloud_image[:, :, 2])
-    #     & (cloud_image[:, :, 0] > 190)
-    # )
-    # cloud_pixels_count = np.sum(cloud_pixels_mask)
-    # cloud_area = calculate_area(cloud_pixels_count, resolution)
-
-    # water_no_cloud_mask = water_pixels_mask & ~cloud_pixels_mask
-
-    # water_no_cloud_count = np.sum(water_no_cloud_mask)
-    # water_no_cloud_area = calculate_area(water_no_cloud_count, resolution)
-
-    # water_no_cloud_region = np.zeros_like(chl_image)
-    # water_no_cloud_region[water_no_cloud_mask] = chl_image[water_no_cloud_mask]
-
-    # chl_concentrations = analyze_chl_image(water_no_cloud_region)
-    # chl_very_low = chl_concentrations[0]
-    # chl_low = chl_concentrations[1]
-    # chl_moderate = chl_concentrations[2]
-    # chl_high = chl_concentrations[3]
-    # chl_very_high = chl_concentrations[4]
-
-    # chl_very_low_area = calculate_area(chl_very_low, resolution)
-    # chl_low_area = calculate_area(chl_low, resolution)
-    # chl_moderate_area = calculate_area(chl_moderate, resolution)
-    # chl_high_area = calculate_area(chl_high, resolution)
-    # chl_very_high_area = calculate_area(chl_very_high, resolution)
-
-    # no_chl_area = water_no_cloud_area - (chl_very_low_area + chl_low_area + chl_moderate_area + chl_high_area + chl_very_high_area)
-    
-
-    # log = {
-    #     "osmid": osmid,
-    #     "day": current_date.strftime("%Y-%m-%d"),
-    #     "exists_true_image": exists_true_image,
-    #     "total_pixel_area" : total_area,
-    #     # "total_pixel_count": total_pixel_count,
-    #     "water_area": water_area,
-    #     "cloud_area": cloud_area,
-    #     "water_with_no_clouds_area": water_no_cloud_area,
-    #     "no_chl_area" : no_chl_area,
-    #     "chl_very_low_area":chl_very_low_area,
-    #     "chl_low_area":chl_low_area,
-    #     "chl_moderate_area":chl_moderate_area,
-    #     "chl_high_area":chl_high_area,
-    #     "chl_very_high_area":chl_very_high_area
-    #     }
-
-    # # log["is_valid"] = check_log(log)
 
     log = calculate_log(osmid, date_str, total_area, resolution, images)
     return log
@@ -715,7 +669,9 @@ def get_historical_lake_log(lake_dict, from_date, to_date, skip_count=1):
         current_date = from_date + timedelta(days=i)
 
     selected_day += timedelta(days=5 * skip_count)
+    
     while selected_day <= to_date:
+        print(selected_day)
         selected_day_str = selected_day.strftime("%Y-%m-%d")
         log = get_lake_log(lake_dict, selected_day)
         # all_images[selected_day_str] = images
@@ -726,30 +682,35 @@ def get_historical_lake_log(lake_dict, from_date, to_date, skip_count=1):
     return lake_logs#, all_images
 
 def get_historical_all_lakes_logs(all_lakes, from_date, to_date, skip_count=1):
-    all_logs = []
-    # all_lakes_images = {}
+    new_logs = []
     for i, row in all_lakes.iterrows():
-        print(f"Lake number {row["Unnamed: 0"]}")
+        print(i)
         osmid = row["osmid"]
         lake_logs = get_historical_lake_log(row,  from_date, to_date, skip_count)
-        # all_lakes_images[osmid] = lake_images
-        all_logs.append(lake_logs)
+        new_logs.append(lake_logs)
 
-    all_logs_df = pd.concat(all_logs, ignore_index=True)
-    return all_logs_df#, all_lakes_images
+    new_logs_df = pd.concat(new_logs, ignore_index=True)
+
+    data_directory = get_data_directory()
+    old_logs_df = pd.read_csv(f"{data_directory}/all_saved_logs.csv")
+    all_logs_df = pd.concat([new_logs_df, old_logs_df], ignore_index=True)
+
+    all_logs_df.to_csv(f"{data_directory}/all_saved_logs.csv", index = False)
+    all_logs_df.to_csv("../data/all_saved_logs.csv", index = False)
+
+    return new_logs_df
 
 def get_all_saved_logs(lakes):
     all_logs = []
     for i, row in lakes.iterrows():
-        print(f"Lake number {row["Unnamed: 0"]}")
-        osmid = row["osmid"]
+        osmid = str(row["osmid"])
         total_pixel_area = row["total_pixel_area"]
         resolution = row["pixel_size"]
-        current_dir = os.getcwd()
-        parent_dir = os.path.dirname(current_dir)
-        data_dir = os.path.join(parent_dir, 'data')
+        data_dir = get_data_directory()
         osmid_dir = os.path.join(data_dir, osmid)
         true_image_files = [image_file for image_file  in os.listdir(osmid_dir) if image_file.endswith(".npy") and "true" in image_file.lower()]
+        print(i, ": ", len(true_image_files))
+        j = 0
         for true_image_file in true_image_files:
             parts = true_image_file.split("_")
             # print(parts)
@@ -774,7 +735,9 @@ def get_all_saved_logs(lakes):
             all_logs.append(log)
     
     all_saved_logs = pd.DataFrame(all_logs)
-    all_saved_logs.to_csv("../data/all_saved_logs.csv")
+    data_directory = get_data_directory()
+    all_saved_logs.to_csv(f"{data_directory}/top_lakes_logs.csv")
+    all_saved_logs.to_csv(r"../data/top_lakes_logs.csv")
     return all_saved_logs
 
 
@@ -919,6 +882,39 @@ def calculate_pixel_size_and_pixel_count(osmid):
     pixel_count = int(np.sum(mask) / (i**2))
 
     return pixel_size, pixel_count
+
+def get_transformed_image(images):
+    true_image = images[0][:, :, :3]
+    water_image = images[1][:, :, :3]
+    cloud_image = images[2][:, :, :3]
+    chl_image = images[3][:, :, :3]
+
+    image_shape = true_image.shape
+    transformed_image = np.zeros(image_shape, dtype=true_image.dtype)
+
+    water_pixels_mask = (
+        (water_image[:, :, 2] > water_image[:, :, 0])
+        & (water_image[:, :, 2] > water_image[:, :, 1])
+        )
+
+
+    cloud_pixels_mask = (
+        (cloud_image[:, :, 0] > cloud_image[:, :, 1])  # El canal rojo es mayor que el verde
+        & (cloud_image[:, :, 0] > cloud_image[:, :, 2])  # El canal rojo es mayor que el azul
+        & (cloud_image[:, :, 0] > 190)  # El canal rojo es mayor que 190
+    )
+
+    transformed_image[water_pixels_mask] = [0, 0, 255]
+    transformed_image[cloud_pixels_mask] = [255, 255, 255]
+
+    white_pixels_mask = np.all(chl_image[:, :, :3] == [255, 255, 255], axis=-1)
+    black_pixels_mask = np.all(chl_image[:, :, :3] == [0, 0, 0], axis=-1)
+
+    non_black_or_white_mask = ~white_pixels_mask & ~black_pixels_mask
+
+    chl_mask = water_pixels_mask & ~cloud_pixels_mask & non_black_or_white_mask
+    transformed_image[chl_mask] = chl_image[chl_mask]
+    return transformed_image
 
 def calculate_mci(concentrations_areas):
     concentration_values = np.array([1, 2, 4, 8, 16])
