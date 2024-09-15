@@ -9,8 +9,11 @@ from typing import Any
 from datetime import datetime, timedelta
 import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
+from matplotlib.colors import LinearSegmentedColormap
+from matplotlib.patches import Patch
 import numpy as np
 import pandas as pd
+import math
 import osmnx as ox
 import os
 import geopandas as gpd
@@ -247,18 +250,22 @@ def plot_indian_lakes(universities, lakes):
         lambda row: Point(row["longitude"], row["latitude"]), axis=1
     )
     universities_gdp = gpd.GeoDataFrame(universities, geometry="geometry")
-    lakes_gdp = gpd.GeoDataFrame(lakes["centroid_ws"], geometry = "centroid_ws")
+    if "centroid_ws" in lakes.columns:
+        lakes_gdp = gpd.GeoDataFrame(lakes["centroid_ws"], geometry = "centroid_ws")
+    else:
+        lakes["geometry"] = lakes.apply(
+            lambda row: Point(row["centroid_long"], row["centroid_lat"]), axis=1
+        )
+        lakes_gdp = gpd.GeoDataFrame(lakes, geometry="geometry")
+
     fig, ax = plt.subplots(1, 1, figsize=(10, 10))
 
     # Plotear el mapa base de la India
     india_states.plot(ax=ax, color="lightgrey", edgecolor="black")
-    lakes_gdp.plot(ax=ax, color="blue", markersize=20, label="Lakes")
+    lakes_gdp.plot(ax=ax, color="blue", markersize=20, label="Lagos")
 
-    universities_gdp.plot(ax=ax, color="red", markersize=20, label="Universities")
+    universities_gdp.plot(ax=ax, color="red", markersize=20, label="Universidades")
     plt.legend()
-
-    # Añadir título
-    plt.title("Lakes and Universities from India")
 
     # Mostrar el plot
     plt.show()
@@ -285,8 +292,11 @@ def get_config():
     # config.sh_client_id = "d4f55ce5-a803-4ab5-b680-bc5f19957d15"
     # config.sh_client_secret = "2JOEOzOxfysriqhfCeIO0846I1e9ULp7"
     #Taila2
-    config.sh_client_id = "4f4361f4-42eb-495b-b036-8c4a0469c4ba"
-    config.sh_client_secret = "DpJgxZWWJwGLhnTUG9owqFN1tfbhKO6g"
+    # config.sh_client_id = "4f4361f4-42eb-495b-b036-8c4a0469c4ba"
+    # config.sh_client_secret = "DpJgxZWWJwGLhnTUG9owqFN1tfbhKO6g"
+    #Taila3
+    config.sh_client_id = "10ee5b6b-78cb-4dab-8237-616c9306f8a9"
+    config.sh_client_secret = "ZMVx8IWqHpGd5bmVBPaeiSbdSfwHXzds"
 
 
     return config
@@ -414,45 +424,28 @@ def get_all_images_from_lake(osmid, type_image, from_date, to_date, resolution):
 
     return images
 
-# def generate_historical_all_type_images_from_lake(
-#     osmid, from_date, to_date, save=False
-# ):
-#     historical_images = []
-#     i = 0
-#     current_date = from_date
-#     while current_date < to_date:
-#         image = get_image_from_lake(osmid, "chl", current_date)
-#         if not np.all(image == 0):
-#             selected_day = current_date
-#             break
-#         i += 1
-#         current_date = from_date + timedelta(days=i)
+def get_resolution(osmid):
+    lakes = pd.read_csv(f"{get_data_directory()}/all_lakes.csv")
+    resolution_value = lakes.loc[lakes["osmid"] == str(osmid), "resolution"]
+    if not resolution_value.empty:
+        return resolution_value.values[0]
+    else:
+        raise ValueError
 
-#     while selected_day <= to_date:
-#         images = generate_all_type_images_from_lake(osmid, selected_day, save)
-#         historical_images.extend(images)
-#         selected_day += timedelta(days=5)
-
-#     return historical_images
-
-
-# def generate_all_type_images_from_lake(osmid, current_date):
-#     images = []
-#     type_images = ["TRUE", "WATER", "CLOUD", "CHL"]
-#     for each_type in type_images:
-#         image = get_image_from_lake(osmid, each_type, current_date)
-#         images.append(image)
-#     return images
+def get_all_type_images_from_lake(osmid, current_date, resolution = None):
+    images = []
+    type_images = ["TRUE", "WATER", "CLOUD", "CHL"]
+    if resolution == None:
+        resolution = get_resolution(osmid)
+    for each_type in type_images:
+        image = get_image_from_lake(osmid, each_type, current_date, resolution)
+        images.append(image)
+    return images
 
 
 ## Transforma cada píxel de la imagen del chl en una categoría
-def categorize_pixel(pixel, reference_colors):
-    # Only consider the RGB part of the pixel
-    distances = np.linalg.norm(reference_colors - pixel[:3], axis=1)
-    return np.argmin(distances)
+def categorize_pixel(pixel):
 
-
-def analyze_chl_image(image):
     reference_colors = np.array(
         [
             [1, 4, 42],  # Very dark blue
@@ -463,6 +456,13 @@ def analyze_chl_image(image):
         ]
     )
 
+    # Only consider the RGB part of the pixel
+    distances = np.linalg.norm(reference_colors - pixel[:3], axis=1)
+    return np.argmin(distances)
+
+
+def analyze_chl_image(image):
+
     white_pixels_mask = np.all(image[:, :, :3] == [255, 255, 255], axis=-1)
     black_pixels_mask = np.all(image[:, :, :3] == [0, 0, 0], axis=-1)
 
@@ -472,9 +472,9 @@ def analyze_chl_image(image):
     non_black_or_white_pixels = non_black_or_white_pixels.reshape(-1, image.shape[2])
 
     categorized_pixels = [
-        categorize_pixel(pixel, reference_colors) for pixel in non_black_or_white_pixels
+        categorize_pixel(pixel) for pixel in non_black_or_white_pixels
     ]
-    category_counts = np.bincount(categorized_pixels, minlength=len(reference_colors))
+    category_counts = np.bincount(categorized_pixels, minlength=5)
 
     return category_counts
 
@@ -618,7 +618,7 @@ def get_lake_log(lake_row, current_date):
     images = []
     log = {""}
     osmid = lake_row["osmid"]
-    resolution = lake_row["pixel_size"]
+    resolution = lake_row["resolution"]
     # total_pixel_count = lake_row["pixel_count"]
     total_area = lake_row["total_pixel_area"]
     date_str = current_date.strftime("%Y-%m-%d")
@@ -700,7 +700,7 @@ def get_historical_all_lakes_logs(all_lakes, from_date, to_date, skip_count=1):
 
     return new_logs_df
 
-def get_all_saved_logs(lakes):
+def get_all_saved_logs(lakes, save = False):
     all_logs = []
     for i, row in lakes.iterrows():
         osmid = str(row["osmid"])
@@ -735,9 +735,9 @@ def get_all_saved_logs(lakes):
             all_logs.append(log)
     
     all_saved_logs = pd.DataFrame(all_logs)
-    data_directory = get_data_directory()
-    all_saved_logs.to_csv(f"{data_directory}/top_lakes_logs.csv")
-    all_saved_logs.to_csv(r"../data/top_lakes_logs.csv")
+    if save:
+        all_saved_logs.to_csv(f"{get_data_directory()}/all_saved_logs.csv", index = False)
+        all_saved_logs.to_csv(r"../data/all_saved_logs.csv", index = False)
     return all_saved_logs
 
 
@@ -746,22 +746,43 @@ def get_all_saved_logs(lakes):
 
 
 
-def plot_all_type_images(osmid, current_date, images):
-    if len(images) != 4:
-        raise ValueError("La lista de imágenes debe contener exactamente 4 elementos.")
 
-    fig, axes = plt.subplots(
-        2, 2, figsize=(8, 8)
-    )  # Crea una cuadrícula de 2x2 para las imágenes
-    titles = ["True Color", "Water Body", "Cloud", "Chl index"]
-    fig.suptitle(f"Lake {osmid}: {current_date.strftime('%Y-%m-%d')}", fontsize=16)
+def plot_all_type_images(osmid, current_date, resolution = None):
+    # Obtener las imágenes
+    images = get_all_type_images_from_lake(osmid, current_date, resolution)
+
+    # Crear la cuadrícula 2x2 para mostrar las imágenes
+    fig, axes = plt.subplots(2, 2, figsize=(10, 8))
+    titles = ["Imagen Real", "Agua", "Nubes", "MCI"]
+
+    # Definir la paleta de colores para el MCI
+    colors = [
+        [0, 0, 0],               # Negro para 0.0
+        [0.0034, 0.0142, 0.163], # #01042A (almost black blue)
+        [0, 0.416, 0.306],       # #006A4E (bangladesh green)
+        [0.486, 0.98, 0],        # #7CFA00 (dark saturated chartreuse)
+        [0.9465, 0.8431, 0.1048],# #F1D71B (light washed yellow)
+        [1, 0, 0]                # #FF0000 (red)
+    ]
+    cmap = LinearSegmentedColormap.from_list('custom_cmap', colors, N=256)
+
+    # Mostrar las imágenes en la cuadrícula
     for i, ax in enumerate(axes.flat):
-        ax.imshow(images[i], cmap="gray")  # Muestra cada imagen en la cuadrícula
-        ax.set_title(titles[i], fontsize=12)
-        ax.axis("off")  # Oculta los ejes para una mejor visualización
+        if i < 3:
+            # Imágenes sin colorbar
+            ax.imshow(images[i], cmap="gray")
+        else:
+            # Mostrar la imagen de MCI con la paleta de colores
+            img = ax.imshow(images[i], cmap=cmap, vmin=0, vmax=0.05)
+            # Añadir colorbar solo para la imagen de MCI
+            cbar = plt.colorbar(img, ax=ax, fraction=0.046, pad=0.04)
+            cbar.set_ticks([0.0, 0.01, 0.02, 0.03, 0.04, 0.05])
+            cbar.set_ticklabels(['0.00', '0.01', '0.02', '0.03', '0.04', '0.05'])
+        ax.axis("off")  # Ocultar los ejes para una mejor visualización
 
-    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Ajusta el espaciado entre los gráficos
+    plt.tight_layout(rect=[0, 0, 1, 0.95])  # Ajustar el espaciado entre gráficos
     plt.show()
+
 
 
 def plot_log(log, images):
@@ -834,8 +855,14 @@ def plot_historical_lake_logs(logs, images):
 def plot_all_historical_lake_logs(all_logs):
     for index, row in all_logs.iterrows():
         osmid = row["osmid"]
-        date_str = row["day"]
-        day = datetime.strptime(date_str, '%Y-%m-%d')
+        date_value  = row["day"]
+        # Verificar si 'day' ya es de tipo datetime
+        if isinstance(date_value, datetime):
+            day = date_value
+        else:
+            # Convertir a datetime si es un string
+            date_str = str(date_value)  # Asegurarse de que sea una cadena
+            day = datetime.strptime(date_str, '%Y-%m-%d')
         true_image = get_image_from_lake(osmid, "true", day, 5)
         water_image = get_image_from_lake(osmid, "water", day, 5)
         cloud_image = get_image_from_lake(osmid, "cloud", day, 5)
@@ -883,7 +910,59 @@ def calculate_pixel_size_and_pixel_count(osmid):
 
     return pixel_size, pixel_count
 
-def get_transformed_image(images):
+# def get_transformed_image(osmid, day, resolution = None, plot = False):
+
+#     images = get_all_type_images_from_lake(osmid, day, resolution)
+
+#     true_image = images[0][:, :, :3]
+#     water_image = images[1][:, :, :3]
+#     cloud_image = images[2][:, :, :3]
+#     chl_image = images[3][:, :, :3]
+
+#     image_shape = true_image.shape
+#     transformed_image = np.zeros(image_shape, dtype=true_image.dtype)
+
+#     water_pixels_mask = (
+#         (water_image[:, :, 2] > water_image[:, :, 0])
+#         & (water_image[:, :, 2] > water_image[:, :, 1])
+#         )
+
+
+#     cloud_pixels_mask = (
+#         (cloud_image[:, :, 0] > cloud_image[:, :, 1])  # El canal rojo es mayor que el verde
+#         & (cloud_image[:, :, 0] > cloud_image[:, :, 2])  # El canal rojo es mayor que el azul
+#         & (cloud_image[:, :, 0] > 190)  # El canal rojo es mayor que 190
+#     )
+
+#     transformed_image[water_pixels_mask] = [0, 0, 255]
+#     transformed_image[cloud_pixels_mask] = [255, 255, 255]
+
+#     white_pixels_mask = np.all(chl_image[:, :, :3] == [255, 255, 255], axis=-1)
+#     black_pixels_mask = np.all(chl_image[:, :, :3] == [0, 0, 0], axis=-1)
+
+#     non_black_or_white_mask = ~white_pixels_mask & ~black_pixels_mask
+
+#     chl_mask = water_pixels_mask & ~cloud_pixels_mask & non_black_or_white_mask
+#     transformed_image[chl_mask] = chl_image[chl_mask]
+#     if plot == True:
+#         plot_transformed_image(transformed_image)
+#     return transformed_image
+
+
+def get_transformed_image(osmid, day, resolution=None, plot=False):
+
+    reference_colors = np.array(
+        [
+            [1, 4, 42],  # Very dark blue
+            [0, 106, 78],  # Dark teal
+            [124, 250, 0],  # Bright yellow-green
+            [241, 215, 27],  # Mustard yellow
+            [255, 0, 0],  # Pure red
+        ]
+    )
+
+    images = get_all_type_images_from_lake(osmid, day, resolution)
+
     true_image = images[0][:, :, :3]
     water_image = images[1][:, :, :3]
     cloud_image = images[2][:, :, :3]
@@ -892,32 +971,122 @@ def get_transformed_image(images):
     image_shape = true_image.shape
     transformed_image = np.zeros(image_shape, dtype=true_image.dtype)
 
+    # Máscara para detectar agua
     water_pixels_mask = (
         (water_image[:, :, 2] > water_image[:, :, 0])
         & (water_image[:, :, 2] > water_image[:, :, 1])
-        )
+    )
 
-
+    # Máscara para detectar nubes
     cloud_pixels_mask = (
         (cloud_image[:, :, 0] > cloud_image[:, :, 1])  # El canal rojo es mayor que el verde
         & (cloud_image[:, :, 0] > cloud_image[:, :, 2])  # El canal rojo es mayor que el azul
         & (cloud_image[:, :, 0] > 190)  # El canal rojo es mayor que 190
     )
 
+    # Asignación de colores para agua y nubes
     transformed_image[water_pixels_mask] = [0, 0, 255]
     transformed_image[cloud_pixels_mask] = [255, 255, 255]
 
+    # Máscara para píxeles que no son ni blancos ni negros
     white_pixels_mask = np.all(chl_image[:, :, :3] == [255, 255, 255], axis=-1)
     black_pixels_mask = np.all(chl_image[:, :, :3] == [0, 0, 0], axis=-1)
-
     non_black_or_white_mask = ~white_pixels_mask & ~black_pixels_mask
 
+    # Máscara para píxeles con concentración de clorofila (MCI)
     chl_mask = water_pixels_mask & ~cloud_pixels_mask & non_black_or_white_mask
-    transformed_image[chl_mask] = chl_image[chl_mask]
+    chl_pixels = chl_image[chl_mask]
+    print(np.sum(chl_mask))
+    chl_pixels = chl_pixels.reshape(-1, chl_image.shape[2])
+
+    categorized_pixels = [
+        categorize_pixel(pixel) for pixel in chl_pixels
+    ]
+
+    transformed_image[chl_mask] = [
+        reference_colors[cat] for cat in categorized_pixels
+    ]
+
+    # Mostrar la imagen si plot=True
+    if plot:
+        plot_transformed_image(transformed_image)
+
     return transformed_image
 
-def calculate_mci(concentrations_areas):
-    concentration_values = np.array([1, 2, 4, 8, 16])
-    mci = np.dot(concentration_values, concentrations_areas)
-    return mci
+# def plot_transformed_image(transformed_image):
+#     # Definir la paleta de colores para el MCI
+#     colors = [
+#         [0, 0, 0],               # Negro para 0.0
+#         [0.0034, 0.0142, 0.163], # #01042A (almost black blue)
+#         [0, 0.416, 0.306],       # #006A4E (bangladesh green)
+#         [0.486, 0.98, 0],        # #7CFA00 (dark saturated chartreuse)
+#         [0.9465, 0.8431, 0.1048],# #F1D71B (light washed yellow)
+#         [1, 0, 0]                # #FF0000 (red)
+#     ]
+#     cmap = LinearSegmentedColormap.from_list('custom_cmap', colors, N=256)
+
+#     # Crear el plot de la imagen transformada
+#     fig, ax = plt.subplots(figsize=(8, 8))
+#     img = ax.imshow(transformed_image)
+
+#     # Añadir la leyenda para nubes (blanco) y agua (azul)
+#     legend_elements = [
+#         Patch(facecolor='white', edgecolor='black', label='Nubes'),
+#         Patch(facecolor='blue', edgecolor='black', label='Agua')
+#     ]
+#     ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
+#     # Añadir la barra de colores (colorbar) para la concentración de clorofila (MCI)
+#     chl_img = ax.imshow(transformed_image, cmap=cmap,  vmin=0, vmax=0.05)
+#     cbar = plt.colorbar(chl_img, ax=ax, fraction=0.0285, pad=0.04)
+#     cbar.set_ticks([0.00, 0.01, 0.02, 0.03, 0.04, 0.05])
+#     cbar.set_ticklabels(['0.00', '0.01', '0.02', '0.03', '0.04', '0.05'])
+#     cbar.set_label('Concentración de Clorofila-a (MCI)', fontsize=10)
+
+#     # Configurar título y mostrar
+#     ax.axis("off")  # Ocultar ejes
+
+#     plt.tight_layout()
+#     plt.show()
+def plot_transformed_image(transformed_image):
+    # Crear el plot de la imagen transformada
+    fig, ax = plt.subplots(figsize=(8, 8))
+    img = ax.imshow(transformed_image)
+
+    # Definir la leyenda con los colores transformados
+    legend_elements = [
+        Patch(facecolor='black', edgecolor='black', label='Sin agua'),
+        Patch(facecolor='white', edgecolor='black', label='Nube'),
+        Patch(facecolor='blue', edgecolor='black', label='Agua sin Chl'),
+        Patch(facecolor=(1/255, 4/255, 42/255), edgecolor='black', label='MCI 0.1'),  # Very dark blue
+        Patch(facecolor=(0/255, 106/255, 78/255), edgecolor='black', label='MCI 0.2'),  # Dark teal
+        Patch(facecolor=(124/255, 250/255, 0/255), edgecolor='black', label='MCI 0.3'),  # Bright yellow-green
+        Patch(facecolor=(241/255, 215/255, 27/255), edgecolor='black', label='MCI 0.4'),  # Mustard yellow
+        Patch(facecolor=(255/255, 0/255, 0/255), edgecolor='black', label='MCI 0.5'),  # Pure red
+    ]
+
+    # Añadir la leyenda personalizada
+    ax.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
+    # Configurar el título y mostrar la imagen
+    ax.axis("off")  # Ocultar los ejes
+
+    plt.tight_layout()
+    plt.show()
+
+def calculate_chl(logs, function_type = "lineal"):
+    mci = [0.01, 0.02, 0.03, 0.04, 0.05]
+    if function_type == "lineal":
+        chl_values = [2158 * mci_level + 3.9 for mci_level in mci]
+    elif function_type == "exp":
+        chl_values = [math.exp((mci_level+0.038)/0.014) for mci_level in mci]
+    else:
+        raise ValueError
+    print(chl_values)
+    area_columns = logs[["chl_very_low_area", "chl_low_area", "chl_moderate_area", "chl_high_area", "chl_very_high_area"]]
+    total_chl = np.dot(area_columns.values, chl_values)
+    logs.loc[:,f"chl_{function_type}"] = total_chl
+    return logs
+    
+
 
