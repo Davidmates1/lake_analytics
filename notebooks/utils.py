@@ -11,6 +11,7 @@ import matplotlib.pyplot as plt
 from matplotlib.gridspec import GridSpec
 from matplotlib.colors import LinearSegmentedColormap
 from matplotlib.patches import Patch
+from skimage.transform import resize
 import numpy as np
 import pandas as pd
 import math
@@ -121,6 +122,8 @@ def get_lakes(
                     new_row["area"] = new_row["geometry"].area
                     new_row["centroid"] = new_row["geometry"].centroid
                     new_row["distance"] = calculate_distance(new_row["centroid"], reference_point_utm)
+                    new_row['name'] = row['name']
+                    new_row['water'] = row['water']
                     longitude, latitude = transformer_to_ws.transform(new_row["centroid"].x,new_row["centroid"].y)
                     new_row["centroid_ws"] = Point(latitude, longitude)
                     new_rows.append(new_row)
@@ -164,7 +167,8 @@ def get_all_lakes(df, distance, area=1000000, drop_duplicated=True):
     dataframes = []
     ox.settings.use_cache = False
     for i, row in df.iterrows():
-        print(f"Finding lakes of university number {i}")
+        if (i % 5 == 0):
+            print(f"Finding lakes of university number {i}")
         longitude = row["longitude"]
         latitude = row["latitude"]
         university_lakes = get_lakes(longitude, latitude, distance, area)
@@ -301,7 +305,10 @@ def get_config():
 
     return config
 
-def get_image_from_lake(osmid, type_image, date, resolution):
+def get_image_from_lake(osmid, type_image, date, resolution = None):
+
+    if resolution == None:
+        resolution = get_resolution(osmid)
 
     config = get_config()
     date_string = date.strftime("%Y-%m-%d")
@@ -852,9 +859,12 @@ def plot_historical_lake_logs(logs, images):
 #         images = all_images[osmid][date_str]
 #         plot_log(row, images)
 
-def plot_all_historical_lake_logs(all_logs):
+def plot_all_historical_lake_logs(all_logs, resolution = None):
+    
     for index, row in all_logs.iterrows():
         osmid = row["osmid"]
+        if resolution == None:
+            resolution = get_resolution(osmid)
         date_value  = row["day"]
         # Verificar si 'day' ya es de tipo datetime
         if isinstance(date_value, datetime):
@@ -863,10 +873,10 @@ def plot_all_historical_lake_logs(all_logs):
             # Convertir a datetime si es un string
             date_str = str(date_value)  # Asegurarse de que sea una cadena
             day = datetime.strptime(date_str, '%Y-%m-%d')
-        true_image = get_image_from_lake(osmid, "true", day, 5)
-        water_image = get_image_from_lake(osmid, "water", day, 5)
-        cloud_image = get_image_from_lake(osmid, "cloud", day, 5)
-        chl_image = get_image_from_lake(osmid, "chl", day, 5)
+        true_image = get_image_from_lake(osmid, "true", day, resolution)
+        water_image = get_image_from_lake(osmid, "water", day, resolution)
+        cloud_image = get_image_from_lake(osmid, "cloud", day, resolution)
+        chl_image = get_image_from_lake(osmid, "chl", day, resolution)
         images = [true_image, water_image, cloud_image, chl_image]
         plot_log(row, images)
 
@@ -996,7 +1006,6 @@ def get_transformed_image(osmid, day, resolution=None, plot=False):
     # Máscara para píxeles con concentración de clorofila (MCI)
     chl_mask = water_pixels_mask & ~cloud_pixels_mask & non_black_or_white_mask
     chl_pixels = chl_image[chl_mask]
-    print(np.sum(chl_mask))
     chl_pixels = chl_pixels.reshape(-1, chl_image.shape[2])
 
     categorized_pixels = [
@@ -1074,6 +1083,154 @@ def plot_transformed_image(transformed_image):
     plt.tight_layout()
     plt.show()
 
+
+
+# def plot_all_transformed_images(logs):
+#     # Determinar el número de filas y columnas basado en el tamaño de logs
+#     num_records = len(logs)
+#     if num_records <= 10:
+#         rows, cols = 2, 5  # Para 10 registros o menos, 2x5
+#     else:
+#         rows, cols = 3, 5  # Para más de 10 registros, 3x4
+
+#     # Crear la figura y los ejes
+#     fig, axes = plt.subplots(rows, cols, figsize=(20, 12))
+#     axes = axes.ravel()  # Para acceder a cada subplot fácilmente
+
+#     # Definir el tamaño fijo para las imágenes (puedes ajustar estos valores si es necesario)
+#     # image_size = (256, 256)
+
+#     # Iterar sobre los registros en logs y plotear las imágenes transformadas
+#     for idx, (i, row) in enumerate(logs.iterrows()):
+#         name = row['name']
+#         day = row['day']
+#         max_water_area = row['max_water_area']
+#         osmid = row['osmid']
+
+#         # Obtener la imagen transformada usando la función get_transformed_image
+#         transformed_image = get_transformed_image(osmid, day, plot=False)
+
+#         # Redimensionar la imagen transformada a un tamaño fijo
+#         # transformed_image_resized = resize(transformed_image, image_size, anti_aliasing=True)
+
+#         # Mostrar la imagen redimensionada en el subplot correspondiente
+#         axes[idx].imshow(transformed_image)
+#         axes[idx].axis("off")
+
+#         # Añadir el subtítulo personalizado en dos líneas
+#         subtitle = f"Lago {name} el {day.strftime("%d-%m-%Y")}\nÁrea: {max_water_area/1000000:.2f} km^2"
+#         axes[idx].set_title(subtitle, fontsize=10)
+
+#     # Eliminar los ejes vacíos si el número de registros es menor que las celdas disponibles
+#     for j in range(idx + 1, rows * cols):
+#         axes[j].axis('off')
+
+#     # Añadir la leyenda solo una vez en la figura completa
+#     legend_elements = [
+#         Patch(facecolor='black', edgecolor='black', label='Sin agua'),
+#         Patch(facecolor='white', edgecolor='black', label='Nube'),
+#         Patch(facecolor='blue', edgecolor='black', label='Agua sin Chl'),
+#         Patch(facecolor=(1/255, 4/255, 42/255), edgecolor='black', label='MCI 0.1'),
+#         Patch(facecolor=(0/255, 106/255, 78/255), edgecolor='black', label='MCI 0.2'),
+#         Patch(facecolor=(124/255, 250/255, 0/255), edgecolor='black', label='MCI 0.3'),
+#         Patch(facecolor=(241/255, 215/255, 27/255), edgecolor='black', label='MCI 0.4'),
+#         Patch(facecolor=(255/255, 0/255, 0/255), edgecolor='black', label='MCI 0.5'),
+#     ]
+#     fig.legend(handles=legend_elements, loc='upper right', fontsize=10)
+
+#     # Ajustar los márgenes y mostrar la figura
+#     plt.tight_layout(rect=[0, 0, 0.85, 1])  # Dejar espacio para la leyenda
+#     plt.show()
+
+
+# def get_max_dimensions(images):
+#     """
+#     Obtener las dimensiones máximas (alto, ancho) de una lista de imágenes.
+#     """
+#     max_height = max(image.shape[0] for image in images)
+#     max_width = max(image.shape[1] for image in images)
+#     return max_height, max_width
+
+# def pad_image(image, target_height, target_width):
+#     """
+#     Añadir bordes negros a una imagen para que tenga las dimensiones deseadas.
+#     """
+#     h, w, c = image.shape
+#     pad_top = (target_height - h) // 2
+#     pad_bottom = target_height - h - pad_top
+#     pad_left = (target_width - w) // 2
+#     pad_right = target_width - w - pad_left
+
+#     # Crear una imagen nueva con bordes negros
+#     padded_image = np.zeros((target_height, target_width, c), dtype=image.dtype)
+#     padded_image[pad_top:pad_top + h, pad_left:pad_left + w] = image
+
+#     return padded_image
+
+# def plot_all_transformed_images(logs):
+#     # Obtener todas las imágenes
+#     images = []
+#     for i, row in logs.iterrows():
+#         osmid = row['osmid']
+#         day = row['day']
+#         transformed_image = get_transformed_image(osmid, day, plot=False)
+#         images.append(transformed_image)
+
+#     # Obtener las dimensiones máximas
+#     max_height, max_width = get_max_dimensions(images)
+#     print(max_height, max_width)
+
+#     # Determinar el número de filas y columnas basado en el tamaño de logs
+#     num_records = len(logs)
+#     if num_records <= 10:
+#         rows, cols = 2, 5  # Para 10 registros o menos, 2x5
+#     else:
+#         rows, cols = 3, 5  # Para más de 10 registros, 3x4
+
+#     size = 4
+#     # Crear la figura y los ejes
+#     fig, axes = plt.subplots(rows, cols, figsize=(cols * size, rows * size))
+#     axes = axes.ravel()  # Para acceder a cada subplot fácilmente
+
+#     # Iterar sobre los registros en logs y plotear las imágenes transformadas
+#     for idx, (i, row) in enumerate(logs.iterrows()):
+#         name = row['name']
+#         day = row['day']
+#         max_water_area = row['max_water_area']
+#         osmid = row['osmid']
+
+#         # Obtener y redimensionar la imagen transformada
+#         transformed_image = get_transformed_image(osmid, day, plot=False)
+#         padded_image = pad_image(transformed_image, max_height, max_width)
+
+#         # Mostrar la imagen redimensionada en el subplot correspondiente
+#         axes[idx].imshow(padded_image)
+#         axes[idx].axis("off")
+
+#         # Añadir el subtítulo personalizado en dos líneas
+#         subtitle = f"{name.title()} el {day.strftime("%d-%m-%Y")}\nÁrea: {max_water_area/1000000:.2f} $km^2$"
+#         axes[idx].set_title(subtitle, fontsize=10)
+
+#     # Eliminar los ejes vacíos si el número de registros es menor que las celdas disponibles
+#     for j in range(idx + 1, rows * cols):
+#         axes[j].axis('off')
+
+#     # Añadir la leyenda solo una vez en la figura completa
+#     legend_elements = [
+#         Patch(facecolor='black', edgecolor='black', label='Sin agua'),
+#         Patch(facecolor='white', edgecolor='black', label='Nube'),
+#         Patch(facecolor='blue', edgecolor='black', label='Agua sin Chl'),
+#         Patch(facecolor=(1/255, 4/255, 42/255), edgecolor='black', label='MCI 0.1'),
+#         Patch(facecolor=(0/255, 106/255, 78/255), edgecolor='black', label='MCI 0.2'),
+#         Patch(facecolor=(124/255, 250/255, 0/255), edgecolor='black', label='MCI 0.3'),
+#         Patch(facecolor=(241/255, 215/255, 27/255), edgecolor='black', label='MCI 0.4'),
+#         Patch(facecolor=(255/255, 0/255, 0/255), edgecolor='black', label='MCI 0.5'),
+#     ]
+#     fig.legend(handles=legend_elements, loc='upper right', fontsize=16, bbox_to_anchor=(1, 1))
+#     # Ajustar los márgenes y mostrar la figura
+#     plt.tight_layout(pad=1.0, w_pad=1.0, h_pad=0.1, rect=[0, 0, 0.85, 1])  # Dejar espacio para la leyenda
+#     plt.show()
+
 def calculate_chl(logs, function_type = "lineal"):
     mci = [0.01, 0.02, 0.03, 0.04, 0.05]
     if function_type == "lineal":
@@ -1087,6 +1244,98 @@ def calculate_chl(logs, function_type = "lineal"):
     total_chl = np.dot(area_columns.values, chl_values)
     logs.loc[:,f"chl_{function_type}"] = total_chl
     return logs
-    
+
+def get_max_dimensions(images):
+    """
+    Obtener las dimensiones máximas (alto, ancho) de una lista de imágenes.
+    """
+    max_height = max(image.shape[0] for image in images)
+    max_width = max(image.shape[1] for image in images)
+    return max_height, max_width
+
+def pad_image(image, target_height, target_width):
+    """
+    Añadir bordes negros a una imagen para que tenga las dimensiones deseadas.
+    """
+    h, w, c = image.shape
+    pad_top = (target_height - h) // 2
+    pad_bottom = target_height - h - pad_top
+    pad_left = (target_width - w) // 2
+    pad_right = target_width - w - pad_left
+
+    # Crear una imagen nueva con bordes negros
+    padded_image = np.zeros((target_height, target_width, c), dtype=image.dtype)
+    padded_image[pad_top:pad_top + h, pad_left:pad_left + w] = image
+
+    return padded_image
+
+def plot_all_transformed_images(logs):
+    # Obtener todas las imágenes
+    images = []
+    for i, row in logs.iterrows():
+        osmid = row['osmid']
+        day = row['day']
+        transformed_image = get_transformed_image(osmid, day, plot=False)
+        images.append(transformed_image)
+
+    # Obtener las dimensiones máximas
+    max_height, max_width = get_max_dimensions(images)
+    target_aspect_ratio = max_width / max_height
+
+    # Determinar el número de filas y columnas basado en el tamaño de logs
+    num_records = len(logs)
+    if num_records <= 10:
+        rows, cols = 2, 5  # Para 10 registros o menos, 2x5
+    else:
+        rows, cols = 3, 5  # Para más de 10 registros, 3x4
+
+    size = 4
+    # Crear la figura y los ejes
+    fig, axes = plt.subplots(rows, cols, figsize=(cols * size, rows * size))
+    axes = axes.ravel()  # Para acceder a cada subplot fácilmente
+
+    # Iterar sobre los registros en logs y plotear las imágenes transformadas
+    for idx, (i, row) in enumerate(logs.iterrows()):
+        name = row['name']
+        day = row['day']
+        max_water_area = row['max_water_area']
+        osmid = row['osmid']
+
+        # Obtener y redimensionar la imagen transformada
+        transformed_image = get_transformed_image(osmid, day, plot=False)
+        h, w, c = transformed_image.shape
+        if w/h > target_aspect_ratio:
+            h = min(int(w/target_aspect_ratio), max_height)
+        else:
+            w = min(int(h * target_aspect_ratio), max_width)
+        padded_image = pad_image(transformed_image, h, w)
+        target_image_size = (max_height, max_width)
+        # Mostrar la imagen redimensionada en el subplot correspondiente
+        axes[idx].imshow(padded_image)
+        axes[idx].axis("off")
+
+        # Añadir el subtítulo personalizado en dos líneas
+        subtitle = f"{name.title()} el {day.strftime('%d-%m-%Y')}\nÁrea: {max_water_area/1000000:.2f} $km^2$"
+        axes[idx].set_title(subtitle, fontsize=10)
+
+    # Eliminar los ejes vacíos si el número de registros es menor que las celdas disponibles
+    for j in range(idx + 1, rows * cols):
+        axes[j].axis('off')
+
+    # Añadir la leyenda solo una vez en la figura completa
+    legend_elements = [
+        Patch(facecolor='black', edgecolor='black', label='Sin agua'),
+        Patch(facecolor='white', edgecolor='black', label='Nube'),
+        Patch(facecolor='blue', edgecolor='black', label='Agua sin Chl'),
+        Patch(facecolor=(1/255, 4/255, 42/255), edgecolor='black', label='MCI 0.1'),
+        Patch(facecolor=(0/255, 106/255, 78/255), edgecolor='black', label='MCI 0.2'),
+        Patch(facecolor=(124/255, 250/255, 0/255), edgecolor='black', label='MCI 0.3'),
+        Patch(facecolor=(241/255, 215/255, 27/255), edgecolor='black', label='MCI 0.4'),
+        Patch(facecolor=(255/255, 0/255, 0/255), edgecolor='black', label='MCI 0.5'),
+    ]
+    fig.legend(handles=legend_elements, loc='upper right', fontsize=16, bbox_to_anchor=(1, 1))
+    # Ajustar los márgenes y mostrar la figura
+    plt.tight_layout(pad=1.0, w_pad=1.0, h_pad=0.1, rect=[0, 0, 0.85, 1])  # Dejar espacio para la leyenda
+    plt.show()
 
 
