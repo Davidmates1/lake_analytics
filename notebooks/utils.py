@@ -678,7 +678,6 @@ def get_historical_lake_log(lake_dict, from_date, to_date, skip_count=1):
     selected_day += timedelta(days=5 * skip_count)
     
     while selected_day <= to_date:
-        print(selected_day)
         selected_day_str = selected_day.strftime("%Y-%m-%d")
         log = get_lake_log(lake_dict, selected_day)
         # all_images[selected_day_str] = images
@@ -691,19 +690,18 @@ def get_historical_lake_log(lake_dict, from_date, to_date, skip_count=1):
 def get_historical_all_lakes_logs(all_lakes, from_date, to_date, skip_count=1):
     new_logs = []
     for i, row in all_lakes.iterrows():
-        print(i)
         osmid = row["osmid"]
         lake_logs = get_historical_lake_log(row,  from_date, to_date, skip_count)
         new_logs.append(lake_logs)
 
     new_logs_df = pd.concat(new_logs, ignore_index=True)
 
-    data_directory = get_data_directory()
-    old_logs_df = pd.read_csv(f"{data_directory}/all_saved_logs.csv")
-    all_logs_df = pd.concat([new_logs_df, old_logs_df], ignore_index=True)
+    # data_directory = get_data_directory()
+    # old_logs_df = pd.read_csv(f"{data_directory}/all_saved_logs.csv")
+    # all_logs_df = pd.concat([new_logs_df, old_logs_df], ignore_index=True)
 
-    all_logs_df.to_csv(f"{data_directory}/all_saved_logs.csv", index = False)
-    all_logs_df.to_csv("../data/all_saved_logs.csv", index = False)
+    # all_logs_df.to_csv(f"{data_directory}/all_saved_logs.csv", index = False)
+    # all_logs_df.to_csv("../data/all_saved_logs.csv", index = False)
 
     return new_logs_df
 
@@ -1239,7 +1237,6 @@ def calculate_chl(logs, function_type = "lineal"):
         chl_values = [math.exp((mci_level+0.038)/0.014) for mci_level in mci]
     else:
         raise ValueError
-    print(chl_values)
     area_columns = logs[["chl_very_low_area", "chl_low_area", "chl_moderate_area", "chl_high_area", "chl_very_high_area"]]
     total_chl = np.dot(area_columns.values, chl_values)
     logs.loc[:,f"chl_{function_type}"] = total_chl
@@ -1338,4 +1335,82 @@ def plot_all_transformed_images(logs):
     plt.tight_layout(pad=1.0, w_pad=1.0, h_pad=0.1, rect=[0, 0, 0.85, 1])  # Dejar espacio para la leyenda
     plt.show()
 
+def plot_time_series(osmid):
+    all_saved_logs = pd.read_csv(r"../data/all_saved_logs.csv")
+    all_saved_logs["day"] = pd.to_datetime(all_saved_logs["day"], format='%Y-%m-%d')
+    lake_logs = all_saved_logs[(all_saved_logs['osmid'] == str(osmid)) & (all_saved_logs['exists_true_image'] == True)].sort_values(by='day').copy()
+    lake_logs = calculate_chl(lake_logs)
+    lake_logs = calculate_chl(lake_logs, 'exp')
 
+    lake_logs['month'] = lake_logs['day'].dt.to_period('M')
+
+    # Calcular el valor mínimo de 'cloud_area' para cada mes
+    min_cloud_area_por_mes = lake_logs.groupby('month')['cloud_area'].min().reset_index()
+
+    # Renombrar la columna del mínimo para hacer un merge más claro
+    min_cloud_area_por_mes.rename(columns={'cloud_area': 'min_cloud_area'}, inplace=True)
+
+    # Hacer merge con el DataFrame original para agregar la columna de mínimos
+    lake_logs = pd.merge(lake_logs, min_cloud_area_por_mes, on='month', how='left')
+    no_clouds_logs = lake_logs[((lake_logs["cloud_area"] < 0.15 * lake_logs["water_area"]) | (lake_logs['cloud_area'] == lake_logs['min_cloud_area'])) & (lake_logs['min_cloud_area']<0.4*max(lake_logs["water_area"]))].copy()
+    # no_clouds_logs = lake_logs[lake_logs["cloud_area"] < 0.15 * lake_logs["water_area"]].copy()
+    no_clouds_logs.loc[:,"relative_chl"] = no_clouds_logs["chl_lineal"]/no_clouds_logs["water_area"]
+    no_clouds_logs.loc[:, 'relative_chl_exp'] = no_clouds_logs["chl_exp"]/no_clouds_logs["water_area"]
+    no_clouds_logs.loc[:, 'chl_very_low_ratio'] = no_clouds_logs['chl_very_low_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'chl_low_ratio'] = no_clouds_logs['chl_low_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'chl_moderate_ratio'] = no_clouds_logs['chl_moderate_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'chl_high_ratio'] = no_clouds_logs['chl_high_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'chl_very_high_ratio'] = no_clouds_logs['chl_very_high_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'no_chl_ratio'] = no_clouds_logs['no_chl_area'] / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'low_very_low_ratio'] = (no_clouds_logs['chl_very_low_area'] + no_clouds_logs['chl_low_area']) / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'high_very_high_ratio'] = (no_clouds_logs['chl_very_high_area'] + no_clouds_logs['chl_high_area']) / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'mod_low_very_low_ratio'] = (no_clouds_logs['chl_very_low_area'] + no_clouds_logs['chl_low_area'] + no_clouds_logs['chl_moderate_area']) / no_clouds_logs['water_area']
+    no_clouds_logs.loc[:, 'mod_high_very_high_ratio'] = (no_clouds_logs['chl_very_high_area'] + no_clouds_logs['chl_high_area'] + no_clouds_logs['chl_moderate_area']) / no_clouds_logs['water_area']
+    logs_filtered = no_clouds_logs[['osmid', 'day', 'chl_lineal', 'relative_chl', 'chl_exp', 'relative_chl_exp', 'water_area', 'cloud_area',
+                                    'chl_very_low_area', 'chl_low_area', 'chl_moderate_area', 'chl_high_area',
+                                    'chl_very_high_area', 'chl_very_low_ratio', 'chl_low_ratio', 'chl_moderate_ratio',
+                                    'chl_high_ratio', 'chl_very_high_ratio', 'no_chl_ratio', 'low_very_low_ratio', 'high_very_high_ratio', 'mod_low_very_low_ratio','mod_high_very_high_ratio']].copy()
+
+    
+    logs_filtered.set_index('day', inplace=True)
+    print(len(logs_filtered))
+
+    # Crear un rango de fechas igualmente espaciadas (por ejemplo, cada día) entre el mínimo y el máximo de 'day'
+    all_days = pd.date_range(start=logs_filtered.index.min(), end=logs_filtered.index.max(), freq='D')
+
+    logs_reindexed = logs_filtered.reindex(all_days)
+
+    cols_to_interpolate = ['chl_lineal', 'relative_chl', 'chl_exp', 'relative_chl_exp', 'water_area',
+                           'chl_very_low_area', 'chl_low_area', 'chl_moderate_area', 'chl_high_area',
+                           'chl_very_high_area', 'chl_very_low_ratio', 'chl_low_ratio', 'chl_moderate_ratio',
+                           'chl_high_ratio', 'chl_very_high_ratio', 'no_chl_ratio', 'low_very_low_ratio', 'high_very_high_ratio', 'mod_low_very_low_ratio','mod_high_very_high_ratio']
+
+    logs_reindexed[cols_to_interpolate] = logs_reindexed[cols_to_interpolate].interpolate(method='linear')
+
+    # Reiniciar el índice para tener la columna 'day' de nuevo
+    logs_reindexed.reset_index(inplace=True)
+    logs_reindexed.rename(columns={'index': 'day'}, inplace=True)
+
+
+    fig, axes = plt.subplots(5, 4, figsize=(30, 20))
+    fig.tight_layout(pad=5.0)  # Ajuste de los espacios entre subplots
+
+
+    fig.suptitle(f'Análisis Temporal de Chlorofila para el Lago con OSMID: {osmid}', fontsize=16)
+    # Definir las columnas a graficar
+    columns_to_plot = ['water_area', 'chl_lineal', 'relative_chl', 'chl_exp', 'relative_chl_exp', 'chl_very_low_area', 'chl_low_area', 'chl_moderate_area', 'chl_high_area', 
+                       'chl_very_high_area', 
+                       'chl_very_low_ratio', 'chl_low_ratio', 'chl_moderate_ratio', 'chl_high_ratio', 'chl_very_high_ratio', 'no_chl_ratio', 'low_very_low_ratio', 'high_very_high_ratio', 'mod_low_very_low_ratio','mod_high_very_high_ratio']
+
+    # Graficar cada columna en un subplot
+    for i, col in enumerate(columns_to_plot):
+        ax = axes[i % 5 ,i // 5]  # Ubicación en la matriz de subplots (5 filas, 3 columnas)
+        ax.plot(logs_reindexed['day'], logs_reindexed[col])
+        ax.set_title(f'Serie temporal de {col}', fontsize=12)
+        ax.set_xlabel('Fecha')
+        ax.set_ylabel(col)
+        ax.set_ylim((0, 1.2*max(logs_reindexed[col])))
+        ax.tick_params(axis='x', rotation=45)
+
+    # Mostrar el gráfico
+    plt.show()
